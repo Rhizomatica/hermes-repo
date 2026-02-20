@@ -12,6 +12,7 @@ repository/lists/
 repository/logs/
 repository/conf/distributions
 repository/conf/options
+repository/rafael.key
 
 # Generated landing page
 index.html
