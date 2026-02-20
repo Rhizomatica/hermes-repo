@@ -35,6 +35,10 @@ FORCE_ORIG="${FORCE_ORIG:-0}"
 DEBUILD_CMD_OPTS="${DEBUILD_CMD_OPTS:---no-lintian}"
 DPKG_BUILDPACKAGE_OPTS="${DPKG_BUILDPACKAGE_OPTS:-${DEBUILD_OPTS:-}}"
 
+[[ "$LIST_FILE" != /* ]] && LIST_FILE="$ROOT_DIR/$LIST_FILE"
+[[ "$REPO_DIR" != /* ]] && REPO_DIR="$ROOT_DIR/$REPO_DIR"
+[[ "$WORK_DIR" != /* ]] && WORK_DIR="$ROOT_DIR/$WORK_DIR"
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
@@ -123,6 +127,33 @@ default_branch() {
   printf '%s\n' main
 }
 
+needs_export_build() {
+  local src_dir="$1"
+  local fmt_file="$src_dir/debian/source/format"
+  [[ -f "$fmt_file" ]] || return 0
+  local fmt
+  fmt="$(<"$fmt_file")"
+  [[ "$fmt" == "3.0 (quilt)" || "$fmt" == "3.0 (native)" ]] && return 1
+  return 0
+}
+
+export_worktree() {
+  local src_dir="$1"
+  local out_dir="$2"
+  rm -rf "$out_dir"
+  mkdir -p "$out_dir"
+  git -C "$src_dir" archive --format=tar HEAD | tar -x -C "$out_dir"
+}
+
+patch_drop_with_quilt() {
+  local src_dir="$1"
+  local rules="$src_dir/debian/rules"
+  [[ -f "$rules" ]] || return 0
+  grep -q "with quilt" "$rules" || return 0
+  echo "Patching debian/rules: dropping '--with quilt' (not available on this debhelper)" >&2
+  sed -i -E 's/[[:space:]]+--with[[:space:]]+quilt//g; s/[[:space:]]+--with=quilt//g' "$rules"
+}
+
 ensure_orig_tarball() {
   local src_dir="$1"
   local out_dir="$2"
@@ -166,14 +197,23 @@ ensure_orig_tarball() {
 include_changes() {
   local src_dir="$1"
   local out_dir="$2"
+  local stamp_file="${3:-}"
 
   local source version
   source="$(cd "$src_dir" && dpkg-parsechangelog -S Source)"
   version="$(cd "$src_dir" && dpkg-parsechangelog -S Version)"
 
-  shopt -s nullglob
-  local changes=("$out_dir/${source}_${version}"_*.changes)
-  shopt -u nullglob
+  local changes=()
+  if [[ -n "$stamp_file" && -f "$stamp_file" ]]; then
+    while IFS= read -r f; do changes+=("$f"); done < <(
+      find "$out_dir" -maxdepth 1 -type f -name "${source}_${version}_*.changes" -newer "$stamp_file" -print
+    )
+  else
+    shopt -s nullglob
+    changes=("$out_dir/${source}_${version}"_*.changes)
+    shopt -u nullglob
+  fi
+
   if [[ "${#changes[@]}" -eq 0 ]]; then
     echo "ERROR: no .changes found for ${source}_${version} in $out_dir" >&2
     exit 1
@@ -223,10 +263,24 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   upstream_pkg="${upstream_pkg%-*}"
   orig_name="${source_pkg}_${upstream_pkg}.orig.tar.gz"
 
-  ensure_orig_tarball "$src_dir" "$pkg_dir"
+  build_src_dir="$src_dir"
+  need_quilt_patch=0
+  if ! dh --list | grep -qx quilt; then
+    [[ -f "$src_dir/debian/rules" ]] && grep -q "with quilt" "$src_dir/debian/rules" && need_quilt_patch=1
+  fi
 
+  if needs_export_build "$src_dir" || [[ "$need_quilt_patch" -eq 1 ]]; then
+    build_src_dir="$pkg_dir/${source_pkg}-${upstream_pkg}"
+    export_worktree "$src_dir" "$build_src_dir"
+  fi
+
+  [[ "$need_quilt_patch" -eq 1 ]] && patch_drop_with_quilt "$build_src_dir"
+
+  ensure_orig_tarball "$build_src_dir" "$pkg_dir"
+
+  build_stamp="$(mktemp -p "$pkg_dir" .build-stamp.XXXXXX)"
   (
-    cd "$src_dir"
+    cd "$build_src_dir"
     extra_dpkg_opts=()
     if dpkg_opts_build_source && ! dpkg_opts_has_sa_sd_si; then
       main_comp="$(repo_main_component)"
@@ -238,7 +292,8 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
     debuild "${DEBUILD_CMD_OPTS_ARR[@]}" -uc -us "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}" "${extra_dpkg_opts[@]}" .
   )
 
-  include_changes "$src_dir" "$pkg_dir"
+  include_changes "$build_src_dir" "$pkg_dir" "$build_stamp"
+  rm -f "$build_stamp"
 done <"$LIST_FILE"
 
 reprepro -b "$REPO_DIR" export "$CODENAME" >/dev/null
