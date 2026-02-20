@@ -36,6 +36,18 @@ gpg --list-secret-keys
 gpg --armor --export <KEYID> > repository/rafael.key
 ```
 
+## Using an existing signing key file
+`reprepro` signs using your **GPG keyring** (it does not read `key/*.asc` automatically).
+
+If you already have a secret key export file (example: `key/hermes-repo-signing.secret.asc`):
+```sh
+gpg --import key/hermes-repo-signing.secret.asc
+gpg --list-secret-keys --keyid-format LONG
+
+# then re-export the repo (sign Release files)
+reprepro -b repository export trixie
+```
+
 ## index.html knobs
 ```sh
 REPO_URL='http://packages.hermes.radio/hermes/' KEY_FILE='rafael.key' scripts/gen-index.sh
