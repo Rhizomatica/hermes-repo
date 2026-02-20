@@ -75,7 +75,8 @@ pkg_lines="$(printf '%s\n' "$pkg_lines" | sort -u)"
     Available packages:<br />
 EOF
   if [[ -n "$pkg_lines" ]]; then
-    printf '%s\n' "$pkg_lines" | sed 's/^/<br \\/>/'
+    # Use '|' delimiter so we don't have to escape '/' in "<br />".
+    printf '%s\n' "$pkg_lines" | sed 's|^|<br />|'
   fi
   cat <<'EOF'
 
