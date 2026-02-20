@@ -1,0 +1,8 @@
+https://github.com/Rhizomatica/uucp.git
+https://github.com/Rhizomatica/LPCNet.git
+https://github.com/Rhizomatica/libcmime.git
+https://github.com/Rhizomatica/csdr.git
+https://github.com/Rhizomatica/vvenc.git
+https://github.com/Rhizomatica/vvdec.git
+https://github.com/Rhizomatica/mozjpeg
+https://github.com/Rhizomatica/qt-kiosk-browser
