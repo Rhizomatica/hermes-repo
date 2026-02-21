@@ -416,8 +416,19 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   fi
 
   branch="$(default_branch "$src_dir")"
-  git -C "$src_dir" checkout "$branch"
-  git -C "$src_dir" pull --ff-only origin "$branch"
+  CURRENT_STEP="checkout"
+  if git -C "$src_dir" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$src_dir" checkout "$branch" >/dev/null
+  else
+    git -C "$src_dir" checkout -b "$branch" "origin/$branch" >/dev/null
+  fi
+
+  # Always sync to the remote branch head (handles force-push/diverged branches).
+  CURRENT_STEP="sync"
+  if ! git -C "$src_dir" reset --hard "origin/$branch" >/dev/null; then
+    echo "ERROR: failed to reset to origin/$branch (does it exist?)" >&2
+    exit 1
+  fi
 
   source_pkg="$(cd "$src_dir" && dpkg-parsechangelog -S Source)"
   version_pkg="$(cd "$src_dir" && dpkg-parsechangelog -S Version)"
