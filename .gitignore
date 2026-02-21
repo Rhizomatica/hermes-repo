@@ -1,5 +1,6 @@
 # Workspace
 work/
+to_add/
 
 # Signing keys (NEVER commit secret keys / passphrases)
 key/
