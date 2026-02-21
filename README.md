@@ -22,6 +22,7 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
 ## Notes
 - The repo is created under `repository/` (contains `conf/ db/ dists/ pool/`), and the landing page is `index.html` at repo root.
 - If you build on both amd64 and arm64, make sure you use the same `repository/` state (sync it between machines) before including new packages.
+- If `reprepro` fails parsing `repository/conf/distributions` with `Unknown header 'DDebComponents'`, either remove the `DDebComponents:` line or run `reprepro` with `--ignore=unknownfield` (the scripts do this automatically).
 
 ## Common commands
 - Build binaries (default, requires build-deps):
@@ -50,7 +51,7 @@ gpg --import key/hermes-repo-signing.secret.asc
 gpg --list-secret-keys --keyid-format LONG
 
 # then re-export the repo (sign Release files)
-reprepro -b repository export trixie
+reprepro -b repository --ignore=unknownfield export trixie
 ```
 
 ## Non-interactive signing (avoid pinentry timeouts)

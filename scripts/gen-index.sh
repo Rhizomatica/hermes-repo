@@ -49,7 +49,7 @@ LIST_FORMAT='${$codename}|${$component}|${$architecture}: ${package} ${version}\
 
 pkg_lines=""
 for c in "${CODENAMES[@]}"; do
-  out="$(reprepro -b "$REPO_DIR" --list-format "$LIST_FORMAT" list "$c" 2>/dev/null || true)"
+  out="$(reprepro -b "$REPO_DIR" --ignore=unknownfield --list-format "$LIST_FORMAT" list "$c" 2>/dev/null || true)"
   [[ -z "$out" ]] && continue
   pkg_lines+=$'\n'"$out"
 done

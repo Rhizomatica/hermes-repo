@@ -13,6 +13,7 @@ Options:
   --suite NAME            Suite name (default: trixie)
   --components LIST       Components (default: main)
   --architectures LIST    Architectures (default: "amd64 arm64 source")
+  --ddeb-components LIST  Optional DDebComponents: value (default: unset)
   --sign-with KEYID       GPG key id/fingerprint for SignWith:
   --unsigned              Do not set SignWith: (unsigned repo)
   -h, --help              Show this help
@@ -29,6 +30,7 @@ CODENAME="${CODENAME:-trixie}"
 SUITE="${SUITE:-trixie}"
 COMPONENTS="${COMPONENTS:-main}"
 ARCHS="${ARCHS:-amd64 arm64 source}"
+DDEB_COMPONENTS="${DDEB_COMPONENTS:-}"
 SIGN_WITH="${SIGN_WITH:-}"
 UNSIGNED=0
 
@@ -39,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --suite) SUITE="$2"; shift 2 ;;
     --components) COMPONENTS="$2"; shift 2 ;;
     --architectures) ARCHS="$2"; shift 2 ;;
+    --ddeb-components) DDEB_COMPONENTS="$2"; shift 2 ;;
     --sign-with) SIGN_WITH="$2"; shift 2 ;;
     --unsigned) UNSIGNED=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -68,11 +71,10 @@ fi
   echo "Origin: HERMES"
   echo "Label: HERMES"
   echo "AlsoAcceptFor: unstable stable UNRELEASED"
-  echo "DDebComponents: $COMPONENTS"
+  [[ -n "$DDEB_COMPONENTS" ]] && echo "DDebComponents: $DDEB_COMPONENTS"
   if [[ "$UNSIGNED" -eq 0 ]]; then
     echo "SignWith: $SIGN_WITH"
   fi
 } >"$REPO_DIR/conf/distributions"
 
 echo "Initialized reprepro config at: $REPO_DIR/conf/distributions"
-

@@ -205,13 +205,13 @@ repo_has_binaries_for_sourcever_arch() {
   local arch="$3"
   local formula
   formula="\$Source (== $src), \$SourceVersion (== $ver)"
-  reprepro -b "$REPO_DIR" -T deb -A "$arch" --list-max 1 listfilter "$CODENAME" "$formula" 2>/dev/null | grep -q .
+  reprepro -b "$REPO_DIR" --ignore=unknownfield -T deb -A "$arch" --list-max 1 listfilter "$CODENAME" "$formula" 2>/dev/null | grep -q .
 }
 
 repo_has_sourcever() {
   local src="$1"
   local ver="$2"
-  reprepro -b "$REPO_DIR" -T dsc --list-max 1 listfilter "$CODENAME" "Package (== $src), Version (== $ver)" 2>/dev/null | grep -q .
+  reprepro -b "$REPO_DIR" --ignore=unknownfield -T dsc --list-max 1 listfilter "$CODENAME" "Package (== $src), Version (== $ver)" 2>/dev/null | grep -q .
 }
 
 changes_arches() {
@@ -229,12 +229,12 @@ replace_existing_binaries_for() {
   for a in $arch_list; do
     [[ "$a" == "source" ]] && continue
     echo "==> [$CURRENT_NAME] removing existing $a binaries for $src $ver" >&2
-    reprepro -b "$REPO_DIR" --export=silent-never -T deb -A "$a" removefilter "$CODENAME" "$formula" >/dev/null 2>&1 || true
-    reprepro -b "$REPO_DIR" --export=silent-never -T ddeb -A "$a" removefilter "$CODENAME" "$formula" >/dev/null 2>&1 || true
+    reprepro -b "$REPO_DIR" --ignore=unknownfield --export=silent-never -T deb -A "$a" removefilter "$CODENAME" "$formula" >/dev/null 2>&1 || true
+    reprepro -b "$REPO_DIR" --ignore=unknownfield --export=silent-never -T ddeb -A "$a" removefilter "$CODENAME" "$formula" >/dev/null 2>&1 || true
   done
 
   # Drop old pool files/checksum registrations that are no longer referenced.
-  reprepro -b "$REPO_DIR" --export=silent-never deleteunreferenced >/dev/null 2>&1 || true
+  reprepro -b "$REPO_DIR" --ignore=unknownfield --export=silent-never deleteunreferenced >/dev/null 2>&1 || true
 }
 
 default_branch() {
@@ -375,7 +375,7 @@ include_changes() {
   local ch
   for ch in "${changes[@]}"; do
     local out ec arch_list
-    if out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"; then
+    if out="$(reprepro -b "$REPO_DIR" --ignore=unknownfield --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"; then
       ec=0
     else
       ec=$?
@@ -390,7 +390,7 @@ include_changes() {
       [[ -n "$arch_list" ]] || arch_list="$HOST_ARCH all"
       replace_existing_binaries_for "$source" "$version" "$arch_list"
 
-      if out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"; then
+      if out="$(reprepro -b "$REPO_DIR" --ignore=unknownfield --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"; then
         ec=0
       else
         ec=$?
@@ -519,7 +519,7 @@ done <"$LIST_FILE"
 
 CURRENT_STEP="reprepro export"
 maybe_preset_signing_passphrase || true
-reprepro -b "$REPO_DIR" export "$CODENAME"
+reprepro -b "$REPO_DIR" --ignore=unknownfield export "$CODENAME"
 CURRENT_STEP="gen-index"
 "$ROOT_DIR/scripts/gen-index.sh" --repo-dir "$REPO_DIR"
 
