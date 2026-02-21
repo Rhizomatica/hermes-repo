@@ -7,7 +7,7 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
 ```
 
 ## Quick start (Debian trixie)
-1. Create/import your signing key (you said you'll do this) and decide a key filename to publish (default: `rafael.key`). Place the public key at `repository/rafael.key`.
+1. Create/import your signing key (you said you'll do this) and decide a key filename to publish (default: `hermes.key`). Place the public key at `repository/hermes.key`.
 2. Initialize repo config:
    - Unsigned (local testing): `scripts/repo-init.sh --unsigned`
    - Signed: `scripts/repo-init.sh --sign-with <KEYID>`
@@ -33,7 +33,7 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
 ```sh
 gpg --full-generate-key
 gpg --list-secret-keys
-gpg --armor --export <KEYID> > repository/rafael.key
+gpg --armor --export <KEYID> > repository/hermes.key
 ```
 
 ## Using an existing signing key file
@@ -50,5 +50,5 @@ reprepro -b repository export trixie
 
 ## index.html knobs
 ```sh
-REPO_URL='http://packages.hermes.radio/hermes/' KEY_FILE='rafael.key' scripts/gen-index.sh
+REPO_URL='http://debian.hermes.radio/' KEY_FILE='hermes.key' scripts/gen-index.sh
 ```

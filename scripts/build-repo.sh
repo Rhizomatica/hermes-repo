@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 usage() {
   cat <<'EOF'
@@ -38,6 +38,22 @@ DPKG_BUILDPACKAGE_OPTS="${DPKG_BUILDPACKAGE_OPTS:-${DEBUILD_OPTS:-}}"
 [[ "$LIST_FILE" != /* ]] && LIST_FILE="$ROOT_DIR/$LIST_FILE"
 [[ "$REPO_DIR" != /* ]] && REPO_DIR="$ROOT_DIR/$REPO_DIR"
 [[ "$WORK_DIR" != /* ]] && WORK_DIR="$ROOT_DIR/$WORK_DIR"
+
+CURRENT_NAME=""
+CURRENT_URL=""
+CURRENT_STEP=""
+on_err() {
+  local ec=$?
+  echo >&2
+  echo "ERROR: scripts/build-repo.sh failed (exit=$ec)" >&2
+  [[ -n "${CURRENT_NAME:-}" ]] && echo "  package: $CURRENT_NAME" >&2
+  [[ -n "${CURRENT_URL:-}" ]] && echo "  url: $CURRENT_URL" >&2
+  [[ -n "${CURRENT_STEP:-}" ]] && echo "  step: $CURRENT_STEP" >&2
+  echo "  command: ${BASH_COMMAND}" >&2
+  echo >&2
+  exit "$ec"
+}
+trap on_err ERR
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -239,6 +255,11 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
     continue
   fi
 
+  CURRENT_NAME="$name"
+  CURRENT_URL="$url"
+  CURRENT_STEP="clone/update"
+  echo "==> [$name] $url" >&2
+
   pkg_dir="$WORK_DIR/$name"
   src_dir="$pkg_dir/src"
   mkdir -p "$pkg_dir"
@@ -276,9 +297,11 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
 
   [[ "$need_quilt_patch" -eq 1 ]] && patch_drop_with_quilt "$build_src_dir"
 
+  CURRENT_STEP="orig tarball"
   ensure_orig_tarball "$build_src_dir" "$pkg_dir"
 
   build_stamp="$(mktemp -p "$pkg_dir" .build-stamp.XXXXXX)"
+  CURRENT_STEP="debuild"
   (
     cd "$build_src_dir"
     extra_dpkg_opts=()
@@ -292,11 +315,15 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
     debuild "${DEBUILD_CMD_OPTS_ARR[@]}" -uc -us "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}" "${extra_dpkg_opts[@]}" .
   )
 
+  CURRENT_STEP="reprepro include"
   include_changes "$build_src_dir" "$pkg_dir" "$build_stamp"
   rm -f "$build_stamp"
+  echo "==> [$name] OK" >&2
 done <"$LIST_FILE"
 
-reprepro -b "$REPO_DIR" export "$CODENAME" >/dev/null
-"$ROOT_DIR/scripts/gen-index.sh" --repo-dir "$REPO_DIR" >/dev/null
+CURRENT_STEP="reprepro export"
+reprepro -b "$REPO_DIR" export "$CODENAME"
+CURRENT_STEP="gen-index"
+"$ROOT_DIR/scripts/gen-index.sh" --repo-dir "$REPO_DIR"
 
 echo "Done. Repo: $REPO_DIR (codename: $CODENAME)"

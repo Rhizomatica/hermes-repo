@@ -13,8 +13,8 @@ Options:
   -h, --help         show help
 
 Environment:
-  REPO_URL      URL shown on the page (default: http://packages.hermes.radio/hermes/)
-  KEY_FILE      Key file name (default: rafael.key)
+  REPO_URL      URL shown on the page (default: http://debian.hermes.radio/)
+  KEY_FILE      Key file name (default: hermes.key)
 EOF
 }
 
@@ -36,8 +36,8 @@ if [[ ! -f "$REPO_DIR/conf/distributions" ]]; then
   exit 1
 fi
 
-REPO_URL="${REPO_URL:-http://packages.hermes.radio/hermes/}"
-KEY_FILE="${KEY_FILE:-rafael.key}"
+REPO_URL="${REPO_URL:-http://debian.hermes.radio/}"
+KEY_FILE="${KEY_FILE:-hermes.key}"
 
 mapfile -t CODENAMES < <(grep -E '^Codename:' "$REPO_DIR/conf/distributions" | sed -E 's/^Codename:[[:space:]]*//')
 COMPONENTS="$(grep -m1 -E '^Components:' "$REPO_DIR/conf/distributions" | sed -E 's/^Components:[[:space:]]*//')"
