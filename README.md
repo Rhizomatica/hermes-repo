@@ -48,6 +48,10 @@ gpg --list-secret-keys --keyid-format LONG
 reprepro -b repository export trixie
 ```
 
+## Non-interactive signing (avoid pinentry timeouts)
+If you keep a passphrase file at `key/passphrase` (ignored by git), `scripts/build-repo.sh` will automatically prime
+`gpg-agent` before `reprepro export` so signing works without interactive pinentry.
+
 ## index.html knobs
 ```sh
 REPO_URL='http://debian.hermes.radio/' KEY_FILE='hermes.key' scripts/gen-index.sh

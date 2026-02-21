@@ -34,10 +34,12 @@ WORK_DIR="${WORK_DIR:-$ROOT_DIR/work}"
 FORCE_ORIG="${FORCE_ORIG:-0}"
 DEBUILD_CMD_OPTS="${DEBUILD_CMD_OPTS:---no-lintian}"
 DPKG_BUILDPACKAGE_OPTS="${DPKG_BUILDPACKAGE_OPTS:-${DEBUILD_OPTS:-}}"
+GPG_PASSPHRASE_FILE="${GPG_PASSPHRASE_FILE:-$ROOT_DIR/key/passphrase}"
 
 [[ "$LIST_FILE" != /* ]] && LIST_FILE="$ROOT_DIR/$LIST_FILE"
 [[ "$REPO_DIR" != /* ]] && REPO_DIR="$ROOT_DIR/$REPO_DIR"
 [[ "$WORK_DIR" != /* ]] && WORK_DIR="$ROOT_DIR/$WORK_DIR"
+[[ "$GPG_PASSPHRASE_FILE" != /* ]] && GPG_PASSPHRASE_FILE="$ROOT_DIR/$GPG_PASSPHRASE_FILE"
 
 CURRENT_NAME=""
 CURRENT_URL=""
@@ -54,6 +56,46 @@ on_err() {
   exit "$ec"
 }
 trap on_err ERR
+
+gpg_setup_tty() {
+  if [[ -t 0 ]]; then
+    export GPG_TTY
+    GPG_TTY="$(tty 2>/dev/null || true)"
+    [[ -n "$GPG_TTY" ]] && gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
+  fi
+}
+
+repo_sign_with() {
+  local v
+  v="$(grep -m1 -E '^SignWith:' "$REPO_DIR/conf/distributions" 2>/dev/null | sed -E 's/^SignWith:[[:space:]]*//')"
+  printf '%s\n' "$v"
+}
+
+maybe_preset_signing_passphrase() {
+  # Best-effort: avoid gpgme pinentry timeouts by priming gpg-agent's cache
+  # using loopback mode + a passphrase file.
+  gpg_setup_tty
+
+  [[ -f "$GPG_PASSPHRASE_FILE" ]] || return 0
+  [[ -f "$REPO_DIR/conf/distributions" ]] || return 0
+  command -v gpg >/dev/null 2>&1 || return 0
+
+  local sign_with
+  sign_with="$(repo_sign_with)"
+  [[ -n "$sign_with" ]] || return 0
+  case "$sign_with" in
+    yes|default|!*) return 0 ;;
+  esac
+
+  # This will cache the passphrase in gpg-agent (no pinentry).
+  if ! printf 'cache\n' | gpg --batch --yes \
+    --pinentry-mode loopback \
+    --passphrase-file "$GPG_PASSPHRASE_FILE" \
+    --local-user "$sign_with" \
+    --clearsign >/dev/null 2>&1; then
+    echo "WARN: failed to prime gpg-agent cache; signing may require interactive pinentry" >&2
+  fi
+}
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
@@ -237,7 +279,7 @@ include_changes() {
 
   local ch
   for ch in "${changes[@]}"; do
-    reprepro -b "$REPO_DIR" --ignore=wrongdistribution include "$CODENAME" "$ch"
+    reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch"
   done
 }
 
@@ -322,6 +364,7 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
 done <"$LIST_FILE"
 
 CURRENT_STEP="reprepro export"
+maybe_preset_signing_passphrase || true
 reprepro -b "$REPO_DIR" export "$CODENAME"
 CURRENT_STEP="gen-index"
 "$ROOT_DIR/scripts/gen-index.sh" --repo-dir "$REPO_DIR"
