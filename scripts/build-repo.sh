@@ -15,6 +15,7 @@ Environment:
   CODENAME       reprepro codename to include into (default: trixie)
   WORK_DIR       Workspace (default: ./work)
   FORCE_ORIG     1 to regenerate *.orig.tar.gz (default: 0)
+  FORCE_REBUILD  1 to rebuild even if same version already in repo (default: 0)
   DEBUILD_CMD_OPTS        Options for debuild itself (default: "--no-lintian")
   DPKG_BUILDPACKAGE_OPTS  Options passed to dpkg-buildpackage (e.g. "-S -d") (default: empty)
   DEBUILD_OPTS            Alias for DPKG_BUILDPACKAGE_OPTS (backwards compat)
@@ -32,6 +33,8 @@ REPO_DIR="${REPO_DIR:-$ROOT_DIR/repository}"
 CODENAME="${CODENAME:-trixie}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/work}"
 FORCE_ORIG="${FORCE_ORIG:-0}"
+FORCE_REBUILD="${FORCE_REBUILD:-0}"
+HOST_ARCH="${HOST_ARCH:-$(dpkg --print-architecture)}"
 DEBUILD_CMD_OPTS="${DEBUILD_CMD_OPTS:---no-lintian}"
 DPKG_BUILDPACKAGE_OPTS="${DPKG_BUILDPACKAGE_OPTS:-${DEBUILD_OPTS:-}}"
 GPG_PASSPHRASE_FILE="${GPG_PASSPHRASE_FILE:-$ROOT_DIR/key/passphrase}"
@@ -108,6 +111,7 @@ need_cmd() {
 
 need_cmd git
 need_cmd debuild
+need_cmd dpkg
 need_cmd dpkg-parsechangelog
 need_cmd reprepro
 need_cmd tar
@@ -174,6 +178,31 @@ dpkg_opts_has_sa_sd_si() {
     esac
   done
   return 1
+}
+
+dpkg_opts_source_only() {
+  local o
+  for o in "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}"; do
+    case "$o" in
+      -S|--build=source) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+repo_has_binaries_for_sourcever_arch() {
+  local src="$1"
+  local ver="$2"
+  local arch="$3"
+  local formula
+  formula="\$Source (== $src), \$SourceVersion (== $ver)"
+  reprepro -b "$REPO_DIR" -T deb -A "$arch" --list-max 1 listfilter "$CODENAME" "$formula" 2>/dev/null | grep -q .
+}
+
+repo_has_sourcever() {
+  local src="$1"
+  local ver="$2"
+  reprepro -b "$REPO_DIR" -T dsc --list-max 1 listfilter "$CODENAME" "Package (== $src), Version (== $ver)" 2>/dev/null | grep -q .
 }
 
 default_branch() {
@@ -334,6 +363,21 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
 
   source_pkg="$(cd "$src_dir" && dpkg-parsechangelog -S Source)"
   version_pkg="$(cd "$src_dir" && dpkg-parsechangelog -S Version)"
+
+  if [[ "$FORCE_REBUILD" != "1" ]]; then
+    if dpkg_opts_source_only; then
+      if repo_has_sourcever "$source_pkg" "$version_pkg"; then
+        echo "==> [$name] already in repo (source $source_pkg $version_pkg), skipping (set FORCE_REBUILD=1 to rebuild)" >&2
+        continue
+      fi
+    else
+      if repo_has_binaries_for_sourcever_arch "$source_pkg" "$version_pkg" "$HOST_ARCH"; then
+        echo "==> [$name] already in repo ($HOST_ARCH $source_pkg $version_pkg), skipping (set FORCE_REBUILD=1 to rebuild)" >&2
+        continue
+      fi
+    fi
+  fi
+
   upstream_pkg="${version_pkg#*:}"
   upstream_pkg="${upstream_pkg%-*}"
   orig_name="${source_pkg}_${upstream_pkg}.orig.tar.gz"
