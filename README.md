@@ -23,6 +23,7 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
 - The repo is created under `repository/` (contains `conf/ db/ dists/ pool/`), and the landing page is `index.html` at repo root.
 - If you build on both amd64 and arm64, make sure you use the same `repository/` state (sync it between machines) before including new packages.
 - If `reprepro` fails parsing `repository/conf/distributions` with `Unknown header 'DDebComponents'`, either remove the `DDebComponents:` line or run `reprepro` with `--ignore=unknownfield` (the scripts do this automatically).
+- If you change `Architectures:` / `Components:` / `Codename:` and get `packages database contains unused ...` errors, either run `reprepro -b repository --ignore=unknownfield --ignore=undefinedtarget clearvanished` or keep the old targets in `conf/distributions` (the scripts also pass `--ignore=undefinedtarget`).
 
 ## Common commands
 - Build binaries (default, requires build-deps):
