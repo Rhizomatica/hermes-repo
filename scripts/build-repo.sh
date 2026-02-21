@@ -14,7 +14,7 @@ Environment:
   REPO_DIR       reprepro base dir (default: ./repository)
   CODENAME       reprepro codename to include into (default: trixie)
   WORK_DIR       Workspace (default: ./work)
-  FORCE_ORIG     1 to regenerate *.orig.tar.gz (default: 0)
+  FORCE_ORIG     1 to force regenerating *.orig.tar.gz from source (default: 0)
   FORCE_REBUILD  1 to rebuild even if same version already in repo (default: 0)
   DEBUILD_CMD_OPTS        Options for debuild itself (default: "--no-lintian")
   DPKG_BUILDPACKAGE_OPTS  Options passed to dpkg-buildpackage (e.g. "-S -d") (default: empty)
@@ -160,6 +160,15 @@ repo_main_component() {
   printf '%s\n' "${1:-main}"
 }
 
+pool_prefix() {
+  local src="$1"
+  if [[ "$src" == lib* && "${#src}" -ge 4 ]]; then
+    printf '%s\n' "${src:0:4}"
+  else
+    printf '%s\n' "${src:0:1}"
+  fi
+}
+
 dpkg_opts_build_source() {
   local o
   for o in "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}"; do
@@ -261,9 +270,8 @@ export_worktree() {
       base="$(basename "$preferred_dir")"
       out_dir="$(mktemp -d -p "$parent" "${base}.XXXXXX")"
     fi
-  else
-    mkdir -p "$out_dir"
   fi
+  mkdir -p "$out_dir"
 
   git -C "$src_dir" archive --format=tar HEAD | tar -x -C "$out_dir"
   printf '%s\n' "$out_dir"
@@ -315,18 +323,26 @@ ensure_orig_tarball() {
   upstream="${upstream%-*}"
 
   local orig="$out_dir/${source}_${upstream}.orig.tar.gz"
-  if [[ "$FORCE_ORIG" != "1" && -f "$orig" ]]; then
+  local main_comp prefix repo_orig
+  main_comp="$(repo_main_component)"
+  prefix="$(pool_prefix "$source")"
+  repo_orig="$REPO_DIR/pool/$main_comp/$prefix/$source/${source}_${upstream}.orig.tar.gz"
+
+  # If the repo already has an orig tarball for this upstream version, reuse it
+  # to avoid checksum conflicts across Debian revisions.
+  if [[ "$FORCE_ORIG" != "1" && -f "$repo_orig" ]]; then
+    cp -f "$repo_orig" "$orig"
     return 0
   fi
 
   echo "Generating orig tarball: $orig" >&2
   (
     cd "$src_dir"
-    tar -czf "$orig" \
+    tar -cf - \
       --exclude='./debian' \
       --exclude-vcs \
       --transform "s,^\\./,${source}-${upstream}/," \
-      .
+      . | gzip -n >"$orig"
   )
 }
 
@@ -335,50 +351,58 @@ include_changes() {
   local out_dir="$2"
   local stamp_file="${3:-}"
 
-  local source version
+  local source version filever
   source="$(cd "$src_dir" && dpkg-parsechangelog -S Source)"
   version="$(cd "$src_dir" && dpkg-parsechangelog -S Version)"
+  filever="${version#*:}"  # strip epoch for filenames
 
   local changes=()
   if [[ -n "$stamp_file" && -f "$stamp_file" ]]; then
     while IFS= read -r f; do changes+=("$f"); done < <(
-      find "$out_dir" -maxdepth 1 -type f -name "${source}_${version}_*.changes" -newer "$stamp_file" -print
+      find "$out_dir" -maxdepth 1 -type f -name "${source}_${filever}_*.changes" -newer "$stamp_file" -print
     )
   else
     shopt -s nullglob
-    changes=("$out_dir/${source}_${version}"_*.changes)
+    changes=("$out_dir/${source}_${filever}"_*.changes)
     shopt -u nullglob
   fi
 
   if [[ "${#changes[@]}" -eq 0 ]]; then
-    echo "ERROR: no .changes found for ${source}_${version} in $out_dir" >&2
+    echo "ERROR: no .changes found for ${source}_${filever} in $out_dir" >&2
     exit 1
   fi
 
   local ch
   for ch in "${changes[@]}"; do
-    local out ec
-    set +e
-    out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"
-    ec=$?
-    set -e
-    if [[ "$ec" -ne 0 ]]; then
-      if [[ "$FORCE_REBUILD" == "1" ]] && grep -q "already registered with different checksums" <<<"$out"; then
-        echo "WARN: checksum mismatch while including (forced rebuild). Replacing existing binaries and retrying..." >&2
-        arch_list="$(changes_arches "$ch")"
-        [[ -n "$arch_list" ]] || arch_list="$HOST_ARCH all"
-        replace_existing_binaries_for "$source" "$version" "$arch_list"
-
-        set +e
-        out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"
-        ec=$?
-        set -e
-        [[ "$ec" -eq 0 ]] || { echo "$out" >&2; return "$ec"; }
-      else
-        echo "$out" >&2
-        return "$ec"
-      fi
+    local out ec arch_list
+    if out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"; then
+      ec=0
+    else
+      ec=$?
     fi
+    if [[ "$ec" -eq 0 ]] && grep -q 'There have been errors' <<<"$out"; then
+      ec=1
+    fi
+    [[ "$ec" -eq 0 ]] && continue
+    if [[ "$FORCE_REBUILD" == "1" ]] && grep -q "already registered with different checksums" <<<"$out"; then
+      echo "WARN: checksum mismatch while including (forced rebuild). Replacing existing binaries and retrying..." >&2
+      arch_list="$(changes_arches "$ch")"
+      [[ -n "$arch_list" ]] || arch_list="$HOST_ARCH all"
+      replace_existing_binaries_for "$source" "$version" "$arch_list"
+
+      if out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"; then
+        ec=0
+      else
+        ec=$?
+      fi
+      if [[ "$ec" -eq 0 ]] && grep -q 'There have been errors' <<<"$out"; then
+        ec=1
+      fi
+      [[ "$ec" -eq 0 ]] && continue
+    fi
+
+    echo "$out" >&2
+    return "$ec"
   done
 }
 
@@ -402,6 +426,10 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   echo "==> [$name] $url" >&2
 
   pkg_dir="$WORK_DIR/$name"
+  if [[ -e "$pkg_dir" && ! -w "$pkg_dir" ]]; then
+    echo "WARN: $pkg_dir is not writable (likely created by root). Using a new work dir for this run." >&2
+    pkg_dir="$(mktemp -d -p "$WORK_DIR" "${name}.XXXXXX")"
+  fi
   src_dir="$pkg_dir/src"
   mkdir -p "$pkg_dir"
 
@@ -474,7 +502,8 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
     extra_dpkg_opts=()
     if dpkg_opts_build_source && ! dpkg_opts_has_sa_sd_si; then
       main_comp="$(repo_main_component)"
-      if [[ ! -f "$REPO_DIR/pool/$main_comp/${source_pkg:0:1}/$source_pkg/$orig_name" ]]; then
+      prefix="$(pool_prefix "$source_pkg")"
+      if [[ ! -f "$REPO_DIR/pool/$main_comp/$prefix/$source_pkg/$orig_name" ]]; then
         extra_dpkg_opts+=(-sa)
       fi
     fi
