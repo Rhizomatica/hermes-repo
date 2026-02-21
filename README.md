@@ -28,6 +28,9 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
   - `scripts/build-repo.sh`
 - Build source-only (useful for quick validation):
   - `DPKG_BUILDPACKAGE_OPTS='-S -d' scripts/build-repo.sh csdr`
+- Re-run safely (idempotent):
+  - `scripts/build-repo.sh` will skip packages already present in the repo for the current architecture/version.
+  - Use `FORCE_REBUILD=1` to rebuild anyway (recommended only if you also bump the package version).
 
 ## Key creation (example)
 ```sh
