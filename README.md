@@ -30,7 +30,9 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
   - `DPKG_BUILDPACKAGE_OPTS='-S -d' scripts/build-repo.sh csdr`
 - Re-run safely (idempotent):
   - `scripts/build-repo.sh` will skip packages already present in the repo for the current architecture/version.
-  - Use `FORCE_REBUILD=1` to rebuild anyway (recommended only if you also bump the package version).
+  - Use `FORCE_REBUILD=1` to rebuild anyway.
+    - If `reprepro include` hits a checksum conflict (same version rebuilt differently), the script will remove existing
+      binaries for that source+version+arch and retry the include.
 
 ## Key creation (example)
 ```sh

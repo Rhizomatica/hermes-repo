@@ -205,6 +205,29 @@ repo_has_sourcever() {
   reprepro -b "$REPO_DIR" -T dsc --list-max 1 listfilter "$CODENAME" "Package (== $src), Version (== $ver)" 2>/dev/null | grep -q .
 }
 
+changes_arches() {
+  local ch="$1"
+  grep -m1 '^Architecture:' "$ch" 2>/dev/null | sed -E 's/^Architecture:[[:space:]]*//' || true
+}
+
+replace_existing_binaries_for() {
+  local src="$1"
+  local ver="$2"
+  local arch_list="$3"
+  local formula="\$Source (== $src), \$SourceVersion (== $ver)"
+
+  local a
+  for a in $arch_list; do
+    [[ "$a" == "source" ]] && continue
+    echo "==> [$CURRENT_NAME] removing existing $a binaries for $src $ver" >&2
+    reprepro -b "$REPO_DIR" --export=silent-never -T deb -A "$a" removefilter "$CODENAME" "$formula" >/dev/null 2>&1 || true
+    reprepro -b "$REPO_DIR" --export=silent-never -T ddeb -A "$a" removefilter "$CODENAME" "$formula" >/dev/null 2>&1 || true
+  done
+
+  # Drop old pool files/checksum registrations that are no longer referenced.
+  reprepro -b "$REPO_DIR" --export=silent-never deleteunreferenced >/dev/null 2>&1 || true
+}
+
 default_branch() {
   local src_dir="$1"
   local ref
@@ -226,10 +249,24 @@ needs_export_build() {
 
 export_worktree() {
   local src_dir="$1"
-  local out_dir="$2"
-  rm -rf "$out_dir"
-  mkdir -p "$out_dir"
+  local preferred_dir="$2"
+
+  local out_dir="$preferred_dir"
+  if [[ -e "$out_dir" ]]; then
+    if ! rm -rf "$out_dir" 2>/dev/null; then
+      # Likely left behind by a previous run as root. Don't fail the whole build;
+      # create a new export dir for this run.
+      local parent base
+      parent="$(dirname "$preferred_dir")"
+      base="$(basename "$preferred_dir")"
+      out_dir="$(mktemp -d -p "$parent" "${base}.XXXXXX")"
+    fi
+  else
+    mkdir -p "$out_dir"
+  fi
+
   git -C "$src_dir" archive --format=tar HEAD | tar -x -C "$out_dir"
+  printf '%s\n' "$out_dir"
 }
 
 needs_export_due_to_untracked() {
@@ -320,7 +357,28 @@ include_changes() {
 
   local ch
   for ch in "${changes[@]}"; do
-    reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch"
+    local out ec
+    set +e
+    out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"
+    ec=$?
+    set -e
+    if [[ "$ec" -ne 0 ]]; then
+      if [[ "$FORCE_REBUILD" == "1" ]] && grep -q "already registered with different checksums" <<<"$out"; then
+        echo "WARN: checksum mismatch while including (forced rebuild). Replacing existing binaries and retrying..." >&2
+        arch_list="$(changes_arches "$ch")"
+        [[ -n "$arch_list" ]] || arch_list="$HOST_ARCH all"
+        replace_existing_binaries_for "$source" "$version" "$arch_list"
+
+        set +e
+        out="$(reprepro -b "$REPO_DIR" --export=silent-never --ignore=wrongdistribution include "$CODENAME" "$ch" 2>&1)"
+        ec=$?
+        set -e
+        [[ "$ec" -eq 0 ]] || { echo "$out" >&2; return "$ec"; }
+      else
+        echo "$out" >&2
+        return "$ec"
+      fi
+    fi
   done
 }
 
@@ -390,7 +448,7 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
 
   if needs_export_build "$src_dir" || [[ "$need_quilt_patch" -eq 1 ]] || needs_export_due_to_untracked "$src_dir"; then
     build_src_dir="$pkg_dir/${source_pkg}-${upstream_pkg}"
-    export_worktree "$src_dir" "$build_src_dir"
+    build_src_dir="$(export_worktree "$src_dir" "$build_src_dir")"
   fi
 
   [[ "$need_quilt_patch" -eq 1 ]] && patch_drop_with_quilt "$build_src_dir"
