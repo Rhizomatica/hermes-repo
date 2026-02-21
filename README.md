@@ -8,6 +8,7 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
 
 ## Quick start (Debian trixie)
 1. Create/import your signing key (you said you'll do this) and decide a key filename to publish (default: `hermes.key`). Place the public key at `repository/hermes.key`.
+   - Public repo URL: https://debian.hermes.radio/hermes/
 2. Initialize repo config:
    - Unsigned (local testing): `scripts/repo-init.sh --unsigned`
    - Signed: `scripts/repo-init.sh --sign-with <KEYID>`

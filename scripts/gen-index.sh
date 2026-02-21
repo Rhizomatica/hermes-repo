@@ -36,8 +36,9 @@ if [[ ! -f "$REPO_DIR/conf/distributions" ]]; then
   exit 1
 fi
 
-REPO_URL="${REPO_URL:-http://debian.hermes.radio/}"
+REPO_URL="${REPO_URL:-https://debian.hermes.radio/hermes/}"
 KEY_FILE="${KEY_FILE:-hermes.key}"
+APT_URL="${APT_URL:-http://debian.hermes.radio/hermes}"
 
 mapfile -t CODENAMES < <(grep -E '^Codename:' "$REPO_DIR/conf/distributions" | sed -E 's/^Codename:[[:space:]]*//')
 COMPONENTS="$(grep -m1 -E '^Components:' "$REPO_DIR/conf/distributions" | sed -E 's/^Components:[[:space:]]*//')"
@@ -66,9 +67,9 @@ pkg_lines="$(printf '%s\n' "$pkg_lines" | sort -u)"
   <body>
     HERMES DEBIAN PACKAGE REPOSITORY: <a href="${REPO_URL}">${REPO_URL}</a><br /> <br/>
     Instructions (Debian trixie):<br /> <br />
-    wget ${REPO_URL%/}/${KEY_FILE}<br />
-    apt-key add ${KEY_FILE}<br />
-    echo deb ${REPO_URL} ${SUITE} ${COMPONENTS} &gt;&gt; /etc/apt/sources.list<br />
+    curl -k ${REPO_URL%/}/${KEY_FILE} | sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/hermes.gpg --import -<br />
+    # (or place the key in /usr/share/keyrings/hermes-archive-keyring.gpg and use the signed-by= option)<br />
+    echo 'deb [arch=arm64] ${APT_URL} ${SUITE} ${COMPONENTS}' &gt;&gt; /etc/apt/sources.list.d/hermes.list<br />
     apt-get update<br />
     <br />
     <br />
