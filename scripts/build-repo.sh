@@ -203,6 +203,18 @@ export_worktree() {
   git -C "$src_dir" archive --format=tar HEAD | tar -x -C "$out_dir"
 }
 
+needs_export_due_to_untracked() {
+  local src_dir="$1"
+  local untracked
+  untracked="$(git -C "$src_dir" ls-files --others --exclude-standard || true)"
+  [[ -z "$untracked" ]] && return 1
+  # If there are non-debian untracked files, dpkg-source (3.0 quilt) may fail.
+  if printf '%s\n' "$untracked" | grep -qvE '^(debian/|\\.pc/)'; then
+    return 0
+  fi
+  return 1
+}
+
 patch_drop_with_quilt() {
   local src_dir="$1"
   local rules="$src_dir/debian/rules"
@@ -332,7 +344,7 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
     [[ -f "$src_dir/debian/rules" ]] && grep -q "with quilt" "$src_dir/debian/rules" && need_quilt_patch=1
   fi
 
-  if needs_export_build "$src_dir" || [[ "$need_quilt_patch" -eq 1 ]]; then
+  if needs_export_build "$src_dir" || [[ "$need_quilt_patch" -eq 1 ]] || needs_export_due_to_untracked "$src_dir"; then
     build_src_dir="$pkg_dir/${source_pkg}-${upstream_pkg}"
     export_worktree "$src_dir" "$build_src_dir"
   fi
