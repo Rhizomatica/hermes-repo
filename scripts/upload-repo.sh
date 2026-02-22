@@ -55,10 +55,14 @@ if [[ ! -f "$INDEX_FILE" ]]; then
 fi
 
 RSYNC_OPTS=(-avz)
+# Exclude machine-specific DB and VCS metadata from uploads by default
+RSYNC_OPTS+=(--exclude='db' --exclude='db/***' --exclude='.git' --exclude='.git/**')
 [[ "$DRY_RUN" -eq 1 ]] && RSYNC_OPTS+=(--dry-run)
 [[ "$DELETE" -eq 1 ]] && RSYNC_OPTS+=(--delete)
 
+# Sync repository content (excluding db) into destination subdir
 rsync "${RSYNC_OPTS[@]}" "$REPO_DIR"/ "$DEST/$REPO_SUBDIR"/
+# Upload landing page to destination root
 rsync "${RSYNC_OPTS[@]}" "$INDEX_FILE" "$DEST/index.html"
 
 echo "Uploaded repo to: $DEST/$REPO_SUBDIR/"
