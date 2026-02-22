@@ -66,12 +66,18 @@ pkg_lines="$(printf '%s\n' "$pkg_lines" | sort -u)"
   </head>
   <body>
     HERMES DEBIAN PACKAGE REPOSITORY: <a href="${REPO_URL}">${REPO_URL}</a><br /> <br/>
-    Instructions (Debian trixie):<br /> <br />
-    curl -k ${REPO_URL%/}/${KEY_FILE} | sudo gpg --no-default-keyring --keyring gnupg-ring:/etc/apt/trusted.gpg.d/hermes.gpg --import -<br />
-    # (or place the key in /usr/share/keyrings/hermes-archive-keyring.gpg and use the signed-by= option)<br />
+    Instructions (Debian 13 Trixie):<br /> <br />
+    # Install the repository certificate<br />
+    wget --no-check-certificate -qO- ${REPO_URL%/}/${KEY_FILE} | gpg --dearmor -o - > /etc/apt/trusted.gpg.d/hermes.gpg<br />
+    <br />
+    # For ARM64 (Debian/Raspberry Pi OS running on arm64 hardware, such as Raspberry Pi, present in the sBitx radio)<br />
     echo 'deb [arch=arm64] ${APT_URL} ${SUITE} ${COMPONENTS}' &gt;&gt; /etc/apt/sources.list.d/hermes.list<br />
+    # For ARM64 (Debian running on x86_64 hardware, such as a laptop or desktop computer)<br />
+    echo 'deb [arch=amd64] ${APT_URL} ${SUITE} ${COMPONENTS}' &gt;&gt; /etc/apt/sources.list.d/hermes.list<br />
+    <br />
     apt-get update<br />
     <br />
+    <hr />
     <br />
     Available packages:<br />
 EOF
