@@ -72,10 +72,9 @@ pkg_lines="$(printf '%s\n' "$pkg_lines" | sort -u)"
     <br />
     # For ARM64 (Debian/Raspberry Pi OS running on arm64 hardware, such as Raspberry Pi, present in the sBitx radio)<br />
     echo 'deb [arch=arm64] ${APT_URL} ${SUITE} ${COMPONENTS}' &gt;&gt; /etc/apt/sources.list.d/hermes.list<br />
-    # For ARM64 (Debian running on x86_64 hardware, such as a laptop or desktop computer)<br />
-    echo 'deb [arch=amd64] ${APT_URL} ${SUITE} ${COMPONENTS}' &gt;&gt; /etc/apt/sources.list.d/hermes.list<br />
     <br />
-    apt-get update<br />
+    # Or for AMD64 (Debian running on x86_64 hardware, such as a laptop or desktop computer)<br />
+    echo 'deb [arch=amd64] ${APT_URL} ${SUITE} ${COMPONENTS}' &gt;&gt; /etc/apt/sources.list.d/hermes.list<br />
     <br />
     <hr />
     <br />
