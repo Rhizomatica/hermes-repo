@@ -6,3 +6,4 @@ https://github.com/Rhizomatica/vvenc.git
 https://github.com/Rhizomatica/vvdec.git
 https://github.com/Rhizomatica/mozjpeg
 https://github.com/Rhizomatica/qt-kiosk-browser
+https://github.com/Rhizomatica/mercury
