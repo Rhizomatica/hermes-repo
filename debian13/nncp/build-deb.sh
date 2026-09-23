@@ -24,7 +24,10 @@ out="$(mkdir -p "${2:-.}" && cd "${2:-.}" && pwd)"
 
 upstream="$(sed -n 's/^.*Version.* = "\(.*\)"$/\1/p' "${src}/src/nncp.go" | head -n 1)"
 commit="$(git -C "${src}" rev-parse --short=7 HEAD)"
-date="$(git -C "${src}" log -1 --format=%cd --date=format:%Y%m%d HEAD)"
+# Date and time of the commit, UTC, as one number: two builds on the same
+# day then sort by time, not by hash (20260923.04147c2 sorted below
+# 20260923.7290b51, so the newer package looked like a downgrade).
+date="$(TZ=UTC git -C "${src}" log -1 --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)"
 debrev="${DEBREV:-1rhizomatica1}"
 version="${upstream}+git${date}.${commit}-${debrev}"
 
