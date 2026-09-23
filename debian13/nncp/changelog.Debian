@@ -1,3 +1,13 @@
+nncp (8.13.0+git20260923.04147c2-1rhizomatica1) unstable; urgency=medium
+
+  * sp: keep a session alive while a packet is still arriving. A session
+    was dropped when no whole SP packet had arrived for 2 min; on HF one
+    file packet takes minutes, so calls ended at 2:00 after the handshake
+    with no file delivered. Liveness now also follows the bytes; a silent
+    peer is still dropped at 2 min.
+
+ -- Rafael Diniz <rafael@rhizomatica.org>  Wed, 23 Sep 2026 23:00:00 +0100
+
 nncp (8.13.0+git20260923.7290b51-1rhizomatica1) unstable; urgency=medium
 
   * Rebuilt on upstream develop (git.stargrave.org, module
