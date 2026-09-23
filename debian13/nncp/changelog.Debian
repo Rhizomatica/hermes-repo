@@ -1,0 +1,22 @@
+nncp (8.13.0+git20260923.7290b51-1rhizomatica1) unstable; urgency=medium
+
+  * Rebuilt on upstream develop (git.stargrave.org, module
+    go.stargrave.org/nncp/v8), which now carries the HF modem transport
+    and per-node nopad. Fork-only changes on top:
+  * NNCPPv4 plain packets with a variable-length path (~240 B less per
+    packet), opt-in per node and per area (pktv4); everything else still
+    gets NNCPPv3, byte-identical to 8.13.0.
+  * hfmodem: an answered session ends when the TNC reports DISCONNECTED,
+    instead of idling to its online deadline; nothing is written to the
+    TNC between sessions (stray bytes stalled Mercury's broadcasts).
+  * postinst no longer resets the spool to 755 root: it only creates it.
+
+ -- Rafael Diniz <rafael@rhizomatica.org>  Wed, 23 Sep 2026 12:00:00 +0000
+
+nncp (8.13.0-6rhizomatica1) unstable; urgency=medium
+
+  * Make nopad a per-node config option (nopad: true in nncp.hjson)
+    instead of auto-detecting from HF connection type. Both initiator
+    and responder now honor the config. Also adds cfgdir save/load support.
+
+ -- Rafael Diniz <rafael@rhizomatica.org>  Wed, 19 Mar 2026 00:00:00 +0000
