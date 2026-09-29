@@ -1,3 +1,16 @@
+nncp (8.13.0+git20260925132658.f28c62f-1rhizomatica1) unstable; urgency=medium
+
+  * sp: per-node pinginterval (seconds). An HF neighbour can send the SP
+    keepalive rarely, since each one costs a modem turn; others keep the
+    default. The HERMES mesh sets 600 s. pinginterval: 0 is rejected.
+  * hfmodem: never open the TNC next to a daemon that holds it. When the
+    hfmodem proxy daemon is running and its dial fails, nncp-call now
+    reports the daemon's error instead of opening a second control
+    connection to Mercury, which serves one client and lost the TNC to
+    it. Direct TNC dialling remains when no daemon is running.
+
+ -- Rafael Diniz <rafael@rhizomatica.org>  Tue, 29 Sep 2026 12:00:00 +0100
+
 nncp (8.13.0+git20260923205140.04147c2-1rhizomatica1) unstable; urgency=medium
 
   * sp: keep a session alive while a packet is still arriving. A session
