@@ -6,8 +6,14 @@ amd64 and arm64).
 
 Every package is built from **its own source repository**, from that
 repository's **default branch** and the `debian/` directory on it; the
-repositories are listed in [`list.txt`](list.txt). Nothing is packaged in this
-repository itself.
+repositories are listed in [`list.txt`](list.txt). The repository lives on
+the server itself (reprepro base `/root/hermes-repo-state-20260927`,
+published in place to `/var/www/html/hermes`). The two tools here work with
+it directly:
+
+- `scripts/build-repo.sh --out DIR` builds, and consults the **published**
+  repository, not a local one;
+- `scripts/publish.sh DIR` uploads, includes, signs and exports on the server.
 
 ## Before you start
 
@@ -17,17 +23,10 @@ repository itself.
   - amd64: a Debian 13 (trixie) PC;
   - arm64: a Raspberry Pi running Raspberry Pi OS / Debian 13, or a Debian 13
     arm64 chroot under qemu.
-  - On both: `sudo apt install devscripts debhelper git`.
-- **Server layout:**
-  - `/root/hermes-repo-state-20260927` is the reprepro base (`conf/`, `db/`).
-    Its `conf/options` publishes straight into the web root
-    (`outdir /var/www/html/hermes`), so every command below works in place.
-  - `/root/hermes-repo/key/passphrase` is the signing key's passphrase. The
-    key itself (EEE8F00A…5DD191BB, "HERMES APT Repo") is in root's keyring.
-
-> **Never run `scripts/upload-repo.sh` on the server.** Run from
-> `/root/hermes-repo`, it copies that directory's old `repository/`
-> (August 2026) over the web root and silently undoes every publish since.
+  - On both: a clone of this repository, and
+    `sudo apt install devscripts debhelper git curl`.
+- **Build dependencies:** install the package's `Build-Depends` on each
+  machine (`sudo apt build-dep ./` in a checkout of the package).
 
 ## 1. Bump the version in the package's repository
 
@@ -43,89 +42,50 @@ Every upload needs a **new version**. The repository refuses a version it
 already has with different contents, and keeps only one version of each
 package.
 
-## 2. Build the source and amd64 packages
+## 2. Build, on amd64 and on arm64
 
-Build on the amd64 machine, from a **clean export** of the default branch:
-
-```sh
-git clone https://github.com/Rhizomatica/<package>.git
-cd <package>
-PKG=$(dpkg-parsechangelog -S Source); VER=$(dpkg-parsechangelog -S Version)
-UP=${VER%-*}                                   # upstream version, e.g. 1.2.3
-mkdir -p ../build/$PKG-$UP
-git archive HEAD | tar -x -C ../build/$PKG-$UP
-cd ../build/$PKG-$UP
-# "3.0 (quilt)" packages need an orig tarball: the tree without debian/
-tar --exclude=./debian -cf - . | gzip -n > ../${PKG}_$UP.orig.tar.gz
-sudo apt build-dep ./                          # installs the Build-Depends
-debuild --no-lintian -us -uc -sa               # -sa: include the source
-```
-
-This leaves the following in `../build/`:
-- `<pkg>_<ver>_amd64.changes`, which lists every file of the upload;
-- the `.dsc`, `.orig.tar.gz` and `.debian.tar.xz` (the source);
-- the `.deb` files and the `.buildinfo`.
-
-## 3. Build the arm64 packages
-
-Build on the arm64 machine, with the same clone steps and the **same**
-`.orig.tar.gz`: copy it over, don't regenerate it. Then:
+On each build machine, in this repository:
 
 ```sh
-dpkg-buildpackage -b -us -uc                   # binaries only
+scripts/build-repo.sh --out ~/upload-amd64 <package>     # on the amd64 PC
+scripts/build-repo.sh --out ~/upload-arm64 <package>     # on the Pi
 ```
 
-**Always start from a fresh `git archive`.** A tree that has already been
-built on amd64 still contains amd64 objects. The arm64 build then picks them
-up and fails, typically with tests "not found".
+`<package>` is the repository name from `list.txt`; with no name, every
+package is checked.
 
-## 4. Copy everything to the server
+- A package whose version is **already published** for that architecture is
+  skipped.
+- The build is from a clean export of the default branch.
+- If the server already has the orig tarball for that upstream version, it
+  is reused, so a new Debian revision never conflicts with the published one.
+- The amd64 build carries the source; the arm64 build is binary-only.
+- Each `.changes`, with every file it lists, ends up in the `--out`
+  directory.
+
+## 3. Publish
+
+Copy the arm64 directory to the amd64 machine, or run `publish.sh` twice.
+Then:
 
 ```sh
-D=/root/incoming-$(date +%Y%m%d)
-ssh root@debian.hermes.radio mkdir -p $D
-# the amd64 .changes, every file it lists, and the arm64 .deb files
-scp <pkg>_<ver>_amd64.changes <pkg>_<ver>.dsc <pkg>_<up>.orig.tar.gz \
-    <pkg>_<ver>.debian.tar.xz <pkg>_<ver>_amd64.buildinfo *_amd64.deb \
-    *_arm64.deb root@debian.hermes.radio:$D/
+scripts/publish.sh --dry-run ~/upload-amd64 ~/upload-arm64   # what would happen
+scripts/publish.sh ~/upload-amd64 ~/upload-arm64
 ```
 
-Check the files arrived intact (`sha256sum` on both sides).
+It copies the files to the server and checks their checksums there. It then
+backs up the database, the published indices and the package's current
+pool files to `/root/repo-backup-<date>`. Next it includes the uploads (the
+one with the source first), exports and signs once, and checks the
+signature. Finally it clears the signing passphrase from gpg-agent and
+regenerates the landing page. If an include fails, nothing is exported,
+and the error names the backup.
 
-## 5. Publish, on the server
+> **Never publish with `scripts/upload-repo.sh`.** It copies a local
+> `repository/` over the published one, and on this server it put the August
+> 2026 indices back over every publish. It now refuses debian.hermes.radio.
 
-```sh
-B=/root/hermes-repo-state-20260927
-O="-b $B --ignore=unknownfield"
-D=/root/incoming-YYYYMMDD
-df -h /                                        # the disk is ~95% full: check it
-
-# back up the database, the published indices, and the package's current
-# files: replacing a version deletes the old files from the pool
-K=/root/repo-backup-$(date +%Y%m%d-%H%M)
-mkdir -p $K && cp -a $B/db $B/conf $K/ && cp -a /var/www/html/hermes/dists $K/
-cp -a /var/www/html/hermes/pool/main/*/<pkg> $K/pool-<pkg> 2>/dev/null || true
-
-cd $D
-reprepro $O --export=never include trixie <pkg>_<ver>_amd64.changes   # source + amd64
-for f in *_arm64.deb; do reprepro $O --export=never includedeb trixie $f; done
-reprepro $O list trixie | grep <pkg>           # the new version, amd64 + arm64 + source
-
-# signing: load the passphrase into gpg-agent, export (writes and signs the
-# indices), then clear the cache again
-KEY=EEE8F00AD242EC5592667F75EA1367BE5DD191BB
-echo x | gpg --batch --pinentry-mode loopback \
-    --passphrase-file /root/hermes-repo/key/passphrase -u $KEY --clearsign > /dev/null
-reprepro $O export trixie
-gpg --verify /var/www/html/hermes/dists/trixie/InRelease   # must say "Good signature"
-gpgconf --reload gpg-agent
-```
-
-If a `.deb` with the same file name is already in the pool with different
-contents (a rebuild of the same version), reprepro refuses it. Bump the
-version (step 1) rather than forcing it.
-
-## 6. Check it from a station
+## 4. Check it from a station
 
 ```sh
 sudo apt update
@@ -134,17 +94,22 @@ apt policy <pkg>        # "Candidate:" should show the new version
 
 ## Undoing a publish
 
-Restore the backup from step 5 (`$K`), including the package's old pool files, and
-export again:
+On the server, restore the backup that `publish.sh` printed
+(`/root/repo-backup-<date>`), including the package's old pool files
+(replacing a version deletes them from the pool). Then export again:
 
 ```sh
-cp -a $K/db $K/conf /root/hermes-repo-state-20260927/
+K=/root/repo-backup-<date>
+B=/root/hermes-repo-state-20260927
+cp -a $K/db $K/conf $B/
 P=/var/www/html/hermes/pool/main/<letter>/<pkg>     # e.g. pool/main/p/paq8px
 mkdir -p $P && cp -a $K/pool-<pkg>/. $P/
-reprepro -b /root/hermes-repo-state-20260927 --ignore=unknownfield export trixie
+echo x | gpg --batch --pinentry-mode loopback \
+    --passphrase-file /root/hermes-repo/key/passphrase \
+    -u EEE8F00AD242EC5592667F75EA1367BE5DD191BB --clearsign > /dev/null
+reprepro -b $B --ignore=unknownfield export trixie
+gpgconf --reload gpg-agent
 ```
-
-Export needs the gpg-agent priming from step 5 first.
 
 ## Package notes
 
@@ -156,3 +121,6 @@ Export needs the gpg-agent priming from step 5 first.
   version, upgrade all stations of a network together.
 - **nncp** builds from the fork's `hermes` branch (its default). The build
   fetches Go modules over the network; `go.sum` pins them.
+- **Arm64 under qemu:** in a chroot, start every build from a fresh clone or
+  export. A tree that was already built on amd64 still contains amd64
+  objects, and the arm64 build fails on them.

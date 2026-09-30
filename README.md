@@ -2,8 +2,9 @@
 HERMES apt / deb repository (reprepro-managed).
 
 **To publish a new version of a package at debian.hermes.radio, follow
-[PUBLISHING.md](PUBLISHING.md).** The quick start below is for building a
-repository from scratch.
+[PUBLISHING.md](PUBLISHING.md):** `scripts/build-repo.sh --out DIR <pkg>` on
+amd64 and arm64, then `scripts/publish.sh DIR...`. The quick start below is
+for building a separate repository from scratch.
 
 ## Requirements (build host)
 ```sh
@@ -23,8 +24,9 @@ apt-get install -y reprepro devscripts debhelper gnupg rsync git
    - `scripts/gen-index.sh` (also run automatically by `build-repo.sh`)
 5. Publish (example):
    - `scripts/upload-repo.sh --dest user@host:/var/www/html`
-   - **Not for debian.hermes.radio:** it copies this `repository/` over the
-     published one. The server's repository is maintained in place; see
+   - **Not for debian.hermes.radio**, which it refuses: it copies this
+     `repository/` over the published one. The server's repository is
+     maintained in place with `scripts/publish.sh`; see
      [PUBLISHING.md](PUBLISHING.md).
 
 ## Notes

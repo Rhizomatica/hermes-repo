@@ -3,13 +3,25 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/build-repo.sh [repo-name...]
+Usage: scripts/build-repo.sh [--out DIR] [repo-name...]
 
 Clones/updates each URL in list.txt (default branch), builds with:
   debuild -uc -us .
 and includes the resulting *.changes into a reprepro repo.
 
+With --out DIR (or OUT_DIR=DIR), only builds: nothing is included locally,
+and each build's .changes plus the files it lists are copied to DIR, ready
+for scripts/publish.sh. The published repository (REPO_URL) replaces the
+local one for deciding what to build: a package whose version is already
+published for this architecture is skipped, and an orig tarball it already
+has is reused. On SOURCE_ARCH the build includes the source (-sa when the
+orig is not published yet); on other architectures it is binary-only.
+
 Environment:
+  OUT_DIR        Build-only mode, see above (same as --out)
+  REPO_URL       Published repository, for build-only mode
+                 (default: http://debian.hermes.radio/hermes)
+  SOURCE_ARCH    Architecture that uploads the source (default: amd64)
   LIST_FILE      Path to list file (default: ./list.txt)
   REPO_DIR       reprepro base dir (default: ./repository)
   CODENAME       reprepro codename to include into (default: trixie)
@@ -23,6 +35,7 @@ Environment:
 Examples:
   scripts/build-repo.sh                 # build all from list.txt
   scripts/build-repo.sh csdr vvenc      # build only these repos
+  scripts/build-repo.sh --out ../upload paq8px   # build for scripts/publish.sh
   DPKG_BUILDPACKAGE_OPTS="-S -d" scripts/build-repo.sh csdr
 EOF
 }
@@ -34,6 +47,10 @@ CODENAME="${CODENAME:-trixie}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/work}"
 FORCE_ORIG="${FORCE_ORIG:-0}"
 FORCE_REBUILD="${FORCE_REBUILD:-0}"
+OUT_DIR="${OUT_DIR:-}"
+REPO_URL="${REPO_URL:-http://debian.hermes.radio/hermes}"
+REPO_URL="${REPO_URL%/}"
+SOURCE_ARCH="${SOURCE_ARCH:-amd64}"
 HOST_ARCH="${HOST_ARCH:-$(dpkg --print-architecture)}"
 DEBUILD_CMD_OPTS="${DEBUILD_CMD_OPTS:---no-lintian}"
 DPKG_BUILDPACKAGE_OPTS="${DPKG_BUILDPACKAGE_OPTS:-${DEBUILD_OPTS:-}}"
@@ -105,6 +122,23 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out) OUT_DIR="${2:?--out needs a directory}"; shift 2 ;;
+    --out=*) OUT_DIR="${1#--out=}"; shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+BUILD_ONLY=0
+if [[ -n "$OUT_DIR" ]]; then
+  BUILD_ONLY=1
+  mkdir -p "$OUT_DIR"
+  OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+fi
+
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "ERROR: missing required command: $1" >&2; exit 127; }
 }
@@ -113,20 +147,23 @@ need_cmd git
 need_cmd debuild
 need_cmd dpkg
 need_cmd dpkg-parsechangelog
-need_cmd reprepro
+[[ "$BUILD_ONLY" -eq 1 ]] || need_cmd reprepro
+[[ "$BUILD_ONLY" -eq 0 ]] || need_cmd curl
+[[ "$BUILD_ONLY" -eq 0 ]] || need_cmd dcmd
 need_cmd tar
 
 if [[ ! -f "$LIST_FILE" ]]; then
   echo "ERROR: list file not found: $LIST_FILE" >&2
   exit 1
 fi
-if [[ ! -f "$REPO_DIR/conf/distributions" ]]; then
+if [[ "$BUILD_ONLY" -eq 0 && ! -f "$REPO_DIR/conf/distributions" ]]; then
   echo "ERROR: reprepro not initialized; missing: $REPO_DIR/conf/distributions" >&2
   echo "Run: scripts/repo-init.sh ..." >&2
   exit 1
 fi
 
 mkdir -p "$WORK_DIR"
+ORIG_PUBLISHED=0
 
 DEBUILD_CMD_OPTS_ARR=()
 if [[ -n "$DEBUILD_CMD_OPTS" ]]; then
@@ -155,6 +192,10 @@ want_repo() {
 
 repo_main_component() {
   local c
+  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    printf '%s\n' main
+    return 0
+  fi
   c="$(grep -m1 -E '^Components:' "$REPO_DIR/conf/distributions" | sed -E 's/^Components:[[:space:]]*//')"
   set -- $c
   printf '%s\n' "${1:-main}"
@@ -235,6 +276,70 @@ replace_existing_binaries_for() {
 
   # Drop old pool files/checksum registrations that are no longer referenced.
   reprepro -b "$REPO_DIR" --ignore=unknownfield --ignore=undefinedtarget --export=silent-never deleteunreferenced >/dev/null 2>&1 || true
+}
+
+# --- build-only mode: the published repository instead of a local one ---
+
+PUBLISHED_DIR="$WORK_DIR/.published"
+
+fetch_published_indices() {
+  mkdir -p "$PUBLISHED_DIR"
+  curl -fsS "$REPO_URL/dists/$CODENAME/main/binary-$HOST_ARCH/Packages" \
+    -o "$PUBLISHED_DIR/Packages-$HOST_ARCH" || : >"$PUBLISHED_DIR/Packages-$HOST_ARCH"
+  { curl -fsS "$REPO_URL/dists/$CODENAME/main/source/Sources.gz" | gzip -dc; } \
+    >"$PUBLISHED_DIR/Sources" 2>/dev/null || : >"$PUBLISHED_DIR/Sources"
+}
+
+# Is a binary built from source $1 version $2 published for $HOST_ARCH?
+published_has_binaries() {
+  awk -v src="$1" -v ver="$2" 'BEGIN { RS = ""; FS = "\n" }
+    {
+      p = ""; s = ""; v = ""; sv = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^Package: /) p = substr($i, 10)
+        else if ($i ~ /^Source: /) s = substr($i, 9)
+        else if ($i ~ /^Version: /) v = substr($i, 10)
+      }
+      if (s == "") s = p
+      if (match(s, / \(.*\)$/)) { sv = substr(s, RSTART + 2, RLENGTH - 3); s = substr(s, 1, RSTART - 1) }
+      if (sv == "") sv = v
+      if (s == src && sv == ver) { found = 1; exit }
+    }
+    END { exit !found }' "$PUBLISHED_DIR/Packages-$HOST_ARCH"
+}
+
+# Is source $1 version $2 published?
+published_has_source() {
+  awk -v src="$1" -v ver="$2" 'BEGIN { RS = ""; FS = "\n" }
+    {
+      p = ""; v = ""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^Package: /) p = substr($i, 10)
+        else if ($i ~ /^Version: /) v = substr($i, 10)
+      }
+      if (p == src && v == ver) { found = 1; exit }
+    }
+    END { exit !found }' "$PUBLISHED_DIR/Sources"
+}
+
+# Copy a build's .changes and every file it lists to OUT_DIR.
+collect_changes() {
+  local src_dir="$1"
+  local out_dir="$2"
+  local stamp_file="$3"
+  local source version filever ch n=0
+  source="$(cd "$src_dir" && dpkg-parsechangelog -S Source)"
+  version="$(cd "$src_dir" && dpkg-parsechangelog -S Version)"
+  filever="${version#*:}"
+  while IFS= read -r ch; do
+    dcmd cp -f "$ch" "$OUT_DIR"/
+    echo "==> [$CURRENT_NAME] $(basename "$ch") and its files -> $OUT_DIR" >&2
+    n=$((n + 1))
+  done < <(find "$out_dir" -maxdepth 1 -type f -name "${source}_${filever}_*.changes" -newer "$stamp_file" -print)
+  if [[ "$n" -eq 0 ]]; then
+    echo "ERROR: no .changes found for ${source}_${filever} in $out_dir" >&2
+    exit 1
+  fi
 }
 
 default_branch() {
@@ -330,7 +435,16 @@ ensure_orig_tarball() {
 
   # If the repo already has an orig tarball for this upstream version, reuse it
   # to avoid checksum conflicts across Debian revisions.
-  if [[ "$FORCE_ORIG" != "1" && -f "$repo_orig" ]]; then
+  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    ORIG_PUBLISHED=0
+    if [[ "$FORCE_ORIG" != "1" ]] && curl -fsS -o "$orig" \
+         "$REPO_URL/pool/$main_comp/$prefix/$source/${source}_${upstream}.orig.tar.gz" 2>/dev/null; then
+      echo "Using the published orig tarball: $orig" >&2
+      ORIG_PUBLISHED=1
+      return 0
+    fi
+    rm -f "$orig"
+  elif [[ "$FORCE_ORIG" != "1" && -f "$repo_orig" ]]; then
     cp -f "$repo_orig" "$orig"
     return 0
   fi
@@ -406,6 +520,8 @@ include_changes() {
   done
 }
 
+[[ "$BUILD_ONLY" -eq 0 ]] || fetch_published_indices
+
 while IFS= read -r raw || [[ -n "$raw" ]]; do
   line="$raw"
   line="${line%%#*}"
@@ -461,7 +577,12 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   source_pkg="$(cd "$src_dir" && dpkg-parsechangelog -S Source)"
   version_pkg="$(cd "$src_dir" && dpkg-parsechangelog -S Version)"
 
-  if [[ "$FORCE_REBUILD" != "1" ]]; then
+  if [[ "$FORCE_REBUILD" != "1" && "$BUILD_ONLY" -eq 1 ]]; then
+    if published_has_binaries "$source_pkg" "$version_pkg"; then
+      echo "==> [$name] already published ($HOST_ARCH $source_pkg $version_pkg), skipping (set FORCE_REBUILD=1 to rebuild)" >&2
+      continue
+    fi
+  elif [[ "$FORCE_REBUILD" != "1" ]]; then
     if dpkg_opts_source_only; then
       if repo_has_sourcever "$source_pkg" "$version_pkg"; then
         echo "==> [$name] already in repo (source $source_pkg $version_pkg), skipping (set FORCE_REBUILD=1 to rebuild)" >&2
@@ -493,6 +614,7 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   [[ "$need_quilt_patch" -eq 1 ]] && patch_drop_with_quilt "$build_src_dir"
 
   CURRENT_STEP="orig tarball"
+  ORIG_PUBLISHED=0
   ensure_orig_tarball "$build_src_dir" "$pkg_dir"
 
   build_stamp="$(mktemp -p "$pkg_dir" .build-stamp.XXXXXX)"
@@ -500,7 +622,14 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   (
     cd "$build_src_dir"
     extra_dpkg_opts=()
-    if dpkg_opts_build_source && ! dpkg_opts_has_sa_sd_si; then
+    if [[ "$BUILD_ONLY" -eq 1 && "${#DPKG_BUILDPACKAGE_OPTS_ARR[@]}" -eq 0 ]]; then
+      # the source goes up once, with the SOURCE_ARCH build
+      if [[ "$HOST_ARCH" != "$SOURCE_ARCH" ]]; then
+        extra_dpkg_opts+=(-b)
+      elif [[ "$ORIG_PUBLISHED" -eq 0 ]] || ! published_has_source "$source_pkg" "$version_pkg"; then
+        extra_dpkg_opts+=(-sa)
+      fi
+    elif [[ "$BUILD_ONLY" -eq 0 ]] && dpkg_opts_build_source && ! dpkg_opts_has_sa_sd_si; then
       main_comp="$(repo_main_component)"
       prefix="$(pool_prefix "$source_pkg")"
       if [[ ! -f "$REPO_DIR/pool/$main_comp/$prefix/$source_pkg/$orig_name" ]]; then
@@ -511,11 +640,24 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
     debuild "${DEBUILD_CMD_OPTS_ARR[@]}" -uc -us "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}" "${extra_dpkg_opts[@]}" .
   )
 
+  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    CURRENT_STEP="collect"
+    collect_changes "$build_src_dir" "$pkg_dir" "$build_stamp"
+    rm -f "$build_stamp"
+    echo "==> [$name] OK" >&2
+    continue
+  fi
+
   CURRENT_STEP="reprepro include"
   include_changes "$build_src_dir" "$pkg_dir" "$build_stamp"
   rm -f "$build_stamp"
   echo "==> [$name] OK" >&2
 done <"$LIST_FILE"
+
+if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  echo "Done. Built for $HOST_ARCH into $OUT_DIR; publish with: scripts/publish.sh $OUT_DIR"
+  exit 0
+fi
 
 CURRENT_STEP="reprepro export"
 maybe_preset_signing_passphrase || true

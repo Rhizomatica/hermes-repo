@@ -5,6 +5,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/upload-repo.sh --dest user@host:/var/www/html [options]
 
+For a self-hosted copy of a repository built locally. Not for
+debian.hermes.radio: publish there with scripts/publish.sh.
+
 Uploads:
   - ./repository/  -> <dest>/<repo-subdir>/
   - ./index.html   -> <dest>/index.html
@@ -44,6 +47,16 @@ if [[ -z "$DEST" ]]; then
   echo "ERROR: --dest is required" >&2
   usage
   exit 2
+fi
+# The HERMES repository at debian.hermes.radio is maintained in place on the
+# server (reprepro base /root/hermes-repo-state-*): this script's model, a
+# local repository/ copied over the published one, silently put old indices
+# back over every publish there. Use scripts/publish.sh for it.
+if [[ "$DEST" == *debian.hermes.radio* || "$DEST" == *134.122.30.56* ]] \
+   || compgen -G "/root/hermes-repo-state-*/conf/options" >/dev/null; then
+  echo "ERROR: not for debian.hermes.radio, whose repository is kept on the server." >&2
+  echo "Build with scripts/build-repo.sh --out DIR, then publish with scripts/publish.sh DIR." >&2
+  exit 1
 fi
 if [[ ! -d "$REPO_DIR" ]]; then
   echo "ERROR: repo dir not found: $REPO_DIR" >&2
