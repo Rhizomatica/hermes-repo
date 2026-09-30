@@ -21,8 +21,8 @@ it directly:
   Rafael to add your public key if you don't have access.
 - **Build machines:**
   - amd64: a Debian 13 (trixie) PC;
-  - arm64: a Raspberry Pi running Raspberry Pi OS / Debian 13, or a Debian 13
-    arm64 chroot under qemu.
+  - arm64: the HERMES build Raspberry Pi (Raspberry Pi OS, Debian 13); the
+    one used so far is `pi@10.70.96.2`, over the VPN.
   - On both: a clone of this repository, and
     `sudo apt install devscripts debhelper git curl`.
 - **Build dependencies:** install the package's `Build-Depends` on each
@@ -48,7 +48,7 @@ On each build machine, in this repository:
 
 ```sh
 scripts/build-repo.sh --out ~/upload-amd64 <package>     # on the amd64 PC
-scripts/build-repo.sh --out ~/upload-arm64 <package>     # on the Pi
+scripts/build-repo.sh --out ~/upload-arm64 <package>     # on the Raspberry Pi
 ```
 
 `<package>` is the repository name from `list.txt`; with no name, every
@@ -65,7 +65,8 @@ package is checked.
 
 ## 3. Publish
 
-Copy the arm64 directory to the amd64 machine, or run `publish.sh` twice.
+Copy the arm64 directory from the Raspberry Pi to the amd64 machine
+(`scp -r pi@10.70.96.2:upload-arm64 ~/`), or run `publish.sh` on each machine.
 Then:
 
 ```sh
@@ -121,6 +122,3 @@ gpgconf --reload gpg-agent
   version, upgrade all stations of a network together.
 - **nncp** builds from the fork's `hermes` branch (its default). The build
   fetches Go modules over the network; `go.sum` pins them.
-- **Arm64 under qemu:** in a chroot, start every build from a fresh clone or
-  export. A tree that was already built on amd64 still contains amd64
-  objects, and the arm64 build fails on them.
