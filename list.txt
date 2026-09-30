@@ -7,3 +7,5 @@ https://github.com/Rhizomatica/vvdec.git
 https://github.com/Rhizomatica/mozjpeg
 https://github.com/Rhizomatica/qt-kiosk-browser
 https://github.com/Rhizomatica/mercury
+https://github.com/Rhizomatica/nncp.git
+https://github.com/Rhizomatica/paq8px.git
