@@ -18,11 +18,20 @@ it directly:
 ## Before you start
 
 - **Server access:** SSH as `root@debian.hermes.radio`, with your key. Ask
-  Rafael to add your public key if you don't have access.
+  Rafael to add your public key if you don't have access. A key with a
+  passphrase has to be loaded first (`eval $(ssh-agent); ssh-add <key>`),
+  or `ssh -o BatchMode=yes` and `publish.sh` get "Permission denied
+  (publickey)". `publish.sh` takes the commands from `SSH` and `SCP`, so a
+  key that isn't the default can be named there:
+  `SSH="ssh -i ~/.ssh/<key>" SCP="scp -i ~/.ssh/<key>" scripts/publish.sh ...`.
 - **Build machines:**
   - amd64: a Debian 13 (trixie) PC;
-  - arm64: the HERMES build Raspberry Pi (Raspberry Pi OS, Debian 13); the
-    one used so far is `pi@10.70.96.2`, over the VPN.
+  - arm64: natively, on a Raspberry Pi 4 station on the bench (Raspberry Pi
+    OS, Debian 13), logged in as `pi`. Mercury's GUI needs a Pi with at least
+    2 GB of RAM (and swap); 1.9.17 was built on `estacao` (192.168.10.106).
+    A station may be on air, so run the build at the lowest priority:
+    `DEB_BUILD_OPTIONS=parallel=2 nice -n 19 ionice -c3 scripts/build-repo.sh ...`.
+    Not in a qemu chroot. Mercury takes about 12 minutes there.
   - On both: a clone of this repository, and
     `sudo apt install devscripts debhelper git curl`.
 - **Build dependencies:** install the package's `Build-Depends` on each
@@ -48,7 +57,7 @@ On each build machine, in this repository:
 
 ```sh
 scripts/build-repo.sh --out ~/upload-amd64 <package>     # on the amd64 PC
-scripts/build-repo.sh --out ~/upload-arm64 <package>     # on the Raspberry Pi
+scripts/build-repo.sh --out ~/upload-arm64 <package>     # on the bench Pi 4
 ```
 
 `<package>` is the repository name from `list.txt`; with no name, every
@@ -65,8 +74,8 @@ package is checked.
 
 ## 3. Publish
 
-Copy the arm64 directory from the Raspberry Pi to the amd64 machine
-(`scp -r pi@10.70.96.2:upload-arm64 ~/`), or run `publish.sh` on each machine.
+Copy the arm64 directory from the Pi to the amd64 machine
+(`scp -r pi@<station>:upload-arm64 ~/`), or run `publish.sh` on each machine.
 Then:
 
 ```sh
@@ -112,11 +121,43 @@ reprepro -b $B --ignore=unknownfield export trixie
 gpgconf --reload gpg-agent
 ```
 
+## Example: a Mercury release
+
+Mercury's release commit on its default branch (`mercuryv2`, "Updates for
+release X.Y.Z") already adds the `debian/changelog` entry, so step 1 is
+done by the release itself. For 1.9.17:
+
+```sh
+# the default branch must be the release, or the build is not what was tagged
+git ls-remote https://github.com/Rhizomatica/mercury.git HEAD refs/tags/v1.9.17
+
+# amd64 PC                                   # bench Pi 4 (estacao)
+scripts/build-repo.sh --out ~/upload-amd64 mercury
+                                             scripts/build-repo.sh --out ~/upload-arm64 mercury
+# then, on the amd64 PC
+scp -r pi@192.168.10.106:upload-arm64 ~/
+scripts/publish.sh --dry-run ~/upload-amd64 ~/upload-arm64
+scripts/publish.sh ~/upload-amd64 ~/upload-arm64
+```
+
+Check the result before publishing:
+
+- the build log ends its test run with `=== All Tests Passed ===`;
+- `mercury` depends on `libhidapi-hidraw0` (CM108 PTT is in);
+- `strings usr/bin/mercury | grep <tag's 8-character hash>` finds the
+  release commit (`build-repo.sh` passes the package's own hash in
+  `GIT_HASH`);
+- `/usr/share/doc/mercury/mercury.ini.example` is there, uncompressed.
+
 ## Package notes
 
-- **mercury** also needs `libwayland-dev`, `libxkbcommon-dev` and
-  `libhidapi-dev` installed; they are not in its `debian/control` yet.
-  Without `libhidapi-dev` the build silently drops CM108 PTT support.
+- **mercury** builds the daemon (`mercury`) and the GUI (`mercury-ui`), which
+  needs Go and fetches its modules over the network. Its `debian/control`
+  lists `libwayland-dev`, `libxkbcommon-dev` and `libhidapi-dev` from 1.9.17
+  on; for older versions install them by hand, or the build silently drops
+  CM108 PTT support (no hidapi). Built on a Pi 4, Mercury's Makefile tunes
+  for it (`-mcpu=cortex-a72`, from the device tree); the binary still runs on
+  a Pi 3, 4 or 5.
 - **paq8px**: archives can only be read by the version that wrote them, and
   hermes-sensors sends paq8px data between stations. When paq8px changes
   version, upgrade all stations of a network together.

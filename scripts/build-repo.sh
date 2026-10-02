@@ -637,7 +637,12 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
       fi
     fi
 
-    debuild "${DEBUILD_CMD_OPTS_ARR[@]}" -uc -us "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}" "${extra_dpkg_opts[@]}" .
+    # The export is a plain tree under WORK_DIR, inside this repository's
+    # own checkout: a package that stamps its git hash (mercury's GIT_HASH)
+    # would take this repository's commit. Hand it the package's own.
+    GIT_HASH="$(git -C "$src_dir" rev-parse --short=8 HEAD)"
+    export GIT_HASH
+    debuild "${DEBUILD_CMD_OPTS_ARR[@]}" --preserve-envvar=GIT_HASH -uc -us "${DPKG_BUILDPACKAGE_OPTS_ARR[@]}" "${extra_dpkg_opts[@]}" .
   )
 
   if [[ "$BUILD_ONLY" -eq 1 ]]; then
