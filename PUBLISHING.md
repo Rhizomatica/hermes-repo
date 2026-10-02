@@ -18,11 +18,17 @@ it directly:
 ## Before you start
 
 - **Server access:** SSH as `root@debian.hermes.radio`, with your key. Ask
-  Rafael to add your public key if you don't have access.
+  Rafael to add your public key if you don't have access. A key with a
+  passphrase has to be loaded first (`eval $(ssh-agent); ssh-add <key>`),
+  or `ssh -o BatchMode=yes` and `publish.sh` get "Permission denied
+  (publickey)". `publish.sh` takes the commands from `SSH` and `SCP`, so a
+  key that isn't the default can be named there:
+  `SSH="ssh -i ~/.ssh/<key>" SCP="scp -i ~/.ssh/<key>" scripts/publish.sh ...`.
 - **Build machines:**
   - amd64: a Debian 13 (trixie) PC;
   - arm64: the HERMES build Raspberry Pi (Raspberry Pi OS, Debian 13); the
-    one used so far is `pi@10.70.96.2`, over the VPN.
+    one used so far is `pi@10.70.96.2`. It is only reachable over the HERMES
+    VPN, so the machine you work from has to be on it.
   - On both: a clone of this repository, and
     `sudo apt install devscripts debhelper git curl`.
 - **Build dependencies:** install the package's `Build-Depends` on each
@@ -112,11 +118,41 @@ reprepro -b $B --ignore=unknownfield export trixie
 gpgconf --reload gpg-agent
 ```
 
+## Example: a Mercury release
+
+Mercury's release commit on its default branch (`mercuryv2`, "Updates for
+release X.Y.Z") already adds the `debian/changelog` entry, so step 1 is
+done by the release itself. For 1.9.17:
+
+```sh
+# the default branch must be the release, or the build is not what was tagged
+git ls-remote https://github.com/Rhizomatica/mercury.git HEAD refs/tags/v1.9.17
+
+# amd64 PC                                   # build Raspberry Pi
+scripts/build-repo.sh --out ~/upload-amd64 mercury
+                                             scripts/build-repo.sh --out ~/upload-arm64 mercury
+# then, on the amd64 PC
+scp -r pi@10.70.96.2:upload-arm64 ~/
+scripts/publish.sh --dry-run ~/upload-amd64 ~/upload-arm64
+scripts/publish.sh ~/upload-amd64 ~/upload-arm64
+```
+
+Check the result before publishing:
+
+- the build log ends its test run with `=== All Tests Passed ===`;
+- `mercury` depends on `libhidapi-hidraw0` (CM108 PTT is in);
+- `strings usr/bin/mercury | grep <tag's 8-character hash>` finds the
+  release commit (`build-repo.sh` passes the package's own hash in
+  `GIT_HASH`);
+- `/usr/share/doc/mercury/mercury.ini.example` is there, uncompressed.
+
 ## Package notes
 
-- **mercury** also needs `libwayland-dev`, `libxkbcommon-dev` and
-  `libhidapi-dev` installed; they are not in its `debian/control` yet.
-  Without `libhidapi-dev` the build silently drops CM108 PTT support.
+- **mercury** builds the daemon (`mercury`) and the GUI (`mercury-ui`), which
+  needs Go and fetches its modules over the network. Its `debian/control`
+  lists `libwayland-dev`, `libxkbcommon-dev` and `libhidapi-dev` from 1.9.17
+  on; for older versions install them by hand, or the build silently drops
+  CM108 PTT support (no hidapi).
 - **paq8px**: archives can only be read by the version that wrote them, and
   hermes-sensors sends paq8px data between stations. When paq8px changes
   version, upgrade all stations of a network together.
