@@ -9,3 +9,5 @@ https://github.com/Rhizomatica/qt-kiosk-browser
 https://github.com/Rhizomatica/mercury
 https://github.com/Rhizomatica/nncp.git
 https://github.com/Rhizomatica/paq8px.git
+https://github.com/Rhizomatica/libspecbleach.git
+https://github.com/Rhizomatica/mbelib-neo.git
