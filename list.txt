@@ -11,3 +11,5 @@ https://github.com/Rhizomatica/nncp.git
 https://github.com/Rhizomatica/paq8px.git
 https://github.com/Rhizomatica/libspecbleach.git
 https://github.com/Rhizomatica/mbelib-neo.git
+https://github.com/Rhizomatica/libjuice.git
+https://github.com/Rhizomatica/libdatachannel.git
